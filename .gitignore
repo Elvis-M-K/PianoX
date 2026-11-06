@@ -46,3 +46,30 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+
+# Android signing credentials
+*.jks
+*.keystore
+key.properties
+local.properties
+
+# Sensitive directories
+secrets/
+credentials/
+
+# Python environments
+.venv/
+venv/
+__pycache__/
+
+# Node.js
+node_modules/
+
+# Temporary files
+*.tmp
+*.bak
