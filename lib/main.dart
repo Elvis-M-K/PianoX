@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import 'features/piano/piano_screen.dart';
 
 void main() {
   runApp(const PianoXApp());
@@ -72,9 +73,16 @@ class DashboardPage extends StatelessWidget {
                   label: 'Dashboard',
                   selected: true,
                 ),
-                const SidebarItem(
+                                SidebarItem(
                   icon: Icons.piano,
                   label: 'Play Piano',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const PianoScreen(),
+                      ),
+                    );
+                  },
                 ),
                 const SidebarItem(
                   icon: Icons.school,
@@ -162,7 +170,13 @@ class DashboardPage extends StatelessWidget {
                         ),
                         const SizedBox(height: 22),
                         FilledButton.icon(
-                          onPressed: () {},
+                        onPressed: () {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (context) => const PianoScreen(),
+    ),
+  );
+},
                           icon: const Icon(Icons.play_arrow),
                           label: const Text('Start Practising'),
                           style: FilledButton.styleFrom(
@@ -227,13 +241,15 @@ class SidebarItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
+  final VoidCallback? onTap;
 
   const SidebarItem({
-    super.key,
-    required this.icon,
-    required this.label,
-    this.selected = false,
-  });
+  super.key,
+  required this.icon,
+  required this.label,
+  this.selected = false,
+  this.onTap,
+});
 
   @override
   Widget build(BuildContext context) {
@@ -245,21 +261,27 @@ class SidebarItem extends StatelessWidget {
             : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
       ),
-      child: ListTile(
-        leading: Icon(
-          icon,
-          color: selected ? DashboardPage.gold : Colors.white60,
-        ),
-        title: Text(
-          label,
-          style: TextStyle(
-            color: selected ? DashboardPage.gold : Colors.white70,
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-        dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Material(
+  color: Colors.transparent,
+  borderRadius: BorderRadius.circular(10),
+  clipBehavior: Clip.antiAlias,
+  child: ListTile(
+    onTap: onTap,
+    leading: Icon(
+      icon,
+      color: selected ? DashboardPage.gold : Colors.white60,
+    ),
+    title: Text(
+      label,
+      style: TextStyle(
+        color: selected ? DashboardPage.gold : Colors.white70,
+        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
       ),
+    ),
+    dense: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+  ),
+),
     );
   }
 }
