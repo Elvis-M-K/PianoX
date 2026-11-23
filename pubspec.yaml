@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_soloud: ^5.2.3
   soundfont_kit: ^1.1.1
+  material_ui: ^1.11.1
 
 dev_dependencies:
   flutter_test:
