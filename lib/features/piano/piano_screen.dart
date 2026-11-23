@@ -435,7 +435,7 @@ class _PianoScreenState extends State<PianoScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'A  W  S  E  D  F  T  G  Y  H  U  J',
+                        'A  W  S  E  D  F  T  G  Y  H  U  J  K',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -445,7 +445,7 @@ class _PianoScreenState extends State<PianoScreen> {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'C4 C#4 D4 D#4 E4 F4 F#4 G4 G#4 A4 A#4 B4',
+                        'Keys follow the selected range; K plays C8 in the highest range.',
                         style: TextStyle(color: Colors.white60, fontSize: 12),
                       ),
                       const SizedBox(height: 8),

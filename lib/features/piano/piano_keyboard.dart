@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'piano_keyboard_range.dart';
+
 class PianoKeyboard extends StatefulWidget {
   final void Function(int pointerId, int midiNote)? onNoteOn;
   final void Function(int pointerId, int midiNote)? onNoteOff;
@@ -12,6 +14,8 @@ class PianoKeyboard extends StatefulWidget {
 }
 
 class _PianoKeyboardState extends State<PianoKeyboard> {
+  static const double _keyboardHeight = 220.0;
+
   final FocusNode _focusNode = FocusNode(debugLabel: 'PianoX keyboard input');
 
   // Tracks the note currently associated with each mouse/touch pointer.
@@ -23,35 +27,44 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
   // Negative IDs distinguish computer keys from mouse/touch pointers.
   int _nextKeyboardPointerId = -1;
 
-  // One octave: C4 through B4.
-  static const List<int> _whiteNotes = [60, 62, 64, 65, 67, 69, 71];
+  // C4-B4 remains the default range (index 4).
+  int _selectedRangeIndex = 4;
 
-  static const List<int> _blackNotes = [61, 63, 66, 68, 70];
+  // Chromatic physical-key layout. K supplies the extra C8 key
+  // in the highest range, which contains thirteen notes.
+  static const List<LogicalKeyboardKey> _computerKeyLayout = [
+    LogicalKeyboardKey.keyA,
+    LogicalKeyboardKey.keyW,
+    LogicalKeyboardKey.keyS,
+    LogicalKeyboardKey.keyE,
+    LogicalKeyboardKey.keyD,
+    LogicalKeyboardKey.keyF,
+    LogicalKeyboardKey.keyT,
+    LogicalKeyboardKey.keyG,
+    LogicalKeyboardKey.keyY,
+    LogicalKeyboardKey.keyH,
+    LogicalKeyboardKey.keyU,
+    LogicalKeyboardKey.keyJ,
+    LogicalKeyboardKey.keyK,
+  ];
 
-  static const List<int> _blackKeyPositions = [0, 1, 3, 4, 5];
+  PianoKeyboardRange get _selectedRange =>
+      PianoKeyboardRange.standardPiano[_selectedRangeIndex];
 
-  // PC keyboard mapping, ascending chromatically from C4 to B4.
-  //
-  // A = C4       W = C#4
-  // S = D4       E = D#4
-  // D = E4       F = F4
-  // T = F#4      G = G4
-  // Y = G#4      H = A4
-  // U = A#4      J = B4
-  static final Map<LogicalKeyboardKey, int> _computerKeyNotes = {
-    LogicalKeyboardKey.keyA: 60,
-    LogicalKeyboardKey.keyW: 61,
-    LogicalKeyboardKey.keyS: 62,
-    LogicalKeyboardKey.keyE: 63,
-    LogicalKeyboardKey.keyD: 64,
-    LogicalKeyboardKey.keyF: 65,
-    LogicalKeyboardKey.keyT: 66,
-    LogicalKeyboardKey.keyG: 67,
-    LogicalKeyboardKey.keyY: 68,
-    LogicalKeyboardKey.keyH: 69,
-    LogicalKeyboardKey.keyU: 70,
-    LogicalKeyboardKey.keyJ: 71,
-  };
+  Map<LogicalKeyboardKey, int> get _computerKeyNotes {
+    final mapping = <LogicalKeyboardKey, int>{};
+    final notes = _selectedRange.notes;
+
+    for (
+      var index = 0;
+      index < notes.length && index < _computerKeyLayout.length;
+      index++
+    ) {
+      mapping[_computerKeyLayout[index]] = notes[index];
+    }
+
+    return mapping;
+  }
 
   Set<int> get _pressedNotes {
     return {
@@ -60,23 +73,50 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
     };
   }
 
+  bool get _hasActiveNotes =>
+      _pointerNotes.values.any((note) => note != null) ||
+      _keyboardPointerIds.isNotEmpty;
+
+  void _changeRange(int offset) {
+    // Never change the mapping while a note is being held.
+    if (_hasActiveNotes) return;
+
+    final nextIndex = _selectedRangeIndex + offset;
+    if (nextIndex < 0 || nextIndex >= PianoKeyboardRange.standardPiano.length) {
+      return;
+    }
+
+    setState(() {
+      _selectedRangeIndex = nextIndex;
+    });
+
+    // Keep computer-key playing ready after using the range controls.
+    _focusNode.requestFocus();
+  }
+
   // Identify the musical note at a pointer position.
   int? _getNoteAtPosition(Offset position, Size size) {
     if (position.dx < 0 ||
         position.dx >= size.width ||
         position.dy < 0 ||
-        position.dy >= size.height) {
+        position.dy >= size.height ||
+        size.width <= 0 ||
+        size.height <= 0) {
       return null;
     }
 
-    final whiteKeyWidth = size.width / 7;
+    final whiteNotes = _selectedRange.whiteNotes;
+    final blackNotes = _selectedRange.blackNotes;
+    final blackKeyPositions = _selectedRange.blackKeyPositions;
+
+    final whiteKeyWidth = size.width / whiteNotes.length;
     final blackKeyWidth = whiteKeyWidth * 0.58;
     final blackKeyHeight = size.height * 0.62;
 
     // Check black keys first because they overlap white keys.
-    for (int i = 0; i < _blackKeyPositions.length; i++) {
+    for (var index = 0; index < blackNotes.length; index++) {
       final left =
-          (_blackKeyPositions[i] + 1) * whiteKeyWidth - blackKeyWidth / 2;
+          (blackKeyPositions[index] + 1) * whiteKeyWidth - blackKeyWidth / 2;
 
       final blackKeyRect = Rect.fromLTWH(
         left,
@@ -86,13 +126,12 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
       );
 
       if (blackKeyRect.contains(position)) {
-        return _blackNotes[i];
+        return blackNotes[index];
       }
     }
 
-    // Identify the white key.
     final whiteKeyIndex = (position.dx / whiteKeyWidth).floor();
-    return _whiteNotes[whiteKeyIndex];
+    return whiteNotes[whiteKeyIndex];
   }
 
   @override
@@ -105,10 +144,6 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
 
   bool _handleHardwareKeyEvent(KeyEvent event) {
     final midiNote = _computerKeyNotes[event.logicalKey];
-
-    // Diagnostic: show physical keyboard events in Terminal 1.
-    if (event is KeyDownEvent || event is KeyUpEvent) {}
-
     if (midiNote == null) return false;
 
     // Start the note on the first key-down event.
@@ -216,115 +251,160 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
     _releaseAllComputerKeys(rebuild: false);
 
     _focusNode.dispose();
-
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    const keyboardHeight = 220.0;
+    final range = _selectedRange;
+    final lastRangeIndex = PianoKeyboardRange.standardPiano.length - 1;
 
-    return SizedBox(
-      height: keyboardHeight,
-      child: Focus(
-        focusNode: _focusNode,
-        autofocus: true,
-        onFocusChange: (hasFocus) {
-          if (!hasFocus) {
-            _releaseAllComputerKeys();
-          }
-        },
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final size = Size(constraints.maxWidth, keyboardHeight);
-
-            return Listener(
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: (event) {
-                // Clicking the piano returns keyboard focus to it.
-                _focusNode.requestFocus();
-
-                _updatePointer(event.pointer, event.localPosition, size);
-              },
-              onPointerMove: (event) {
-                if (_pointerNotes.containsKey(event.pointer)) {
-                  _updatePointer(event.pointer, event.localPosition, size);
-                }
-              },
-              onPointerUp: (event) {
-                _releasePointer(event.pointer);
-              },
-              onPointerCancel: (event) {
-                _releasePointer(event.pointer);
-              },
-              child: CustomPaint(
-                painter: PianoKeyboardPainter(pressedNotes: _pressedNotes),
-                child: const SizedBox.expand(),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Previous piano range',
+              onPressed: _selectedRangeIndex == 0 || _hasActiveNotes
+                  ? null
+                  : () => _changeRange(-1),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Expanded(
+              child: Column(
+                children: [
+                  Text(
+                    range.label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Range ${_selectedRangeIndex + 1} of '
+                    '${PianoKeyboardRange.standardPiano.length} · '
+                    '${range.noteCount} notes',
+                    style: const TextStyle(color: Colors.white60, fontSize: 11),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+            IconButton(
+              tooltip: 'Next piano range',
+              onPressed:
+                  _selectedRangeIndex == lastRangeIndex || _hasActiveNotes
+                  ? null
+                  : () => _changeRange(1),
+              icon: const Icon(Icons.chevron_right),
+            ),
+          ],
         ),
-      ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: _keyboardHeight,
+          child: Focus(
+            focusNode: _focusNode,
+            autofocus: true,
+            onFocusChange: (hasFocus) {
+              if (!hasFocus) {
+                _releaseAllComputerKeys();
+              }
+            },
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final size = Size(constraints.maxWidth, _keyboardHeight);
+
+                return Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (event) {
+                    // Touching the piano returns computer-key focus to it.
+                    _focusNode.requestFocus();
+                    _updatePointer(event.pointer, event.localPosition, size);
+                  },
+                  onPointerMove: (event) {
+                    if (_pointerNotes.containsKey(event.pointer)) {
+                      _updatePointer(event.pointer, event.localPosition, size);
+                    }
+                  },
+                  onPointerUp: (event) {
+                    _releasePointer(event.pointer);
+                  },
+                  onPointerCancel: (event) {
+                    _releasePointer(event.pointer);
+                  },
+                  child: CustomPaint(
+                    painter: PianoKeyboardPainter(
+                      pressedNotes: _pressedNotes,
+                      range: range,
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
 class PianoKeyboardPainter extends CustomPainter {
   final Set<int> pressedNotes;
+  final PianoKeyboardRange range;
+  final List<int> _whiteNotes;
+  final List<int> _blackNotes;
+  final List<int> _blackKeyPositions;
 
-  PianoKeyboardPainter({required this.pressedNotes});
-
-  static const List<int> whiteNotes = [60, 62, 64, 65, 67, 69, 71];
-
-  static const List<int> blackNotes = [61, 63, 66, 68, 70];
-
-  static const List<int> blackKeyPositions = [0, 1, 3, 4, 5];
+  PianoKeyboardPainter({required this.pressedNotes, required this.range})
+    : _whiteNotes = range.whiteNotes,
+      _blackNotes = range.blackNotes,
+      _blackKeyPositions = range.blackKeyPositions;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final whiteKeyWidth = size.width / 7;
+    if (_whiteNotes.isEmpty || size.width <= 0 || size.height <= 0) {
+      return;
+    }
+
+    final whiteKeyWidth = size.width / _whiteNotes.length;
 
     final whitePaint = Paint()..color = const Color(0xFFF5F2E9);
-
     final pressedWhitePaint = Paint()..color = const Color(0xFFD4AF37);
-
     final blackPaint = Paint()..color = const Color(0xFF171717);
-
     final pressedBlackPaint = Paint()..color = const Color(0xFFB38B22);
-
     final borderPaint = Paint()
       ..color = const Color(0xFFB8B3A8)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
 
-    // Draw white keys.
-    for (int i = 0; i < whiteNotes.length; i++) {
+    // Draw white keys first.
+    for (var index = 0; index < _whiteNotes.length; index++) {
       final rect = Rect.fromLTWH(
-        i * whiteKeyWidth,
+        index * whiteKeyWidth,
         0,
         whiteKeyWidth,
         size.height,
       );
 
-      final isPressed = pressedNotes.contains(whiteNotes[i]);
-
+      final isPressed = pressedNotes.contains(_whiteNotes[index]);
       canvas.drawRect(rect, isPressed ? pressedWhitePaint : whitePaint);
-
       canvas.drawRect(rect, borderPaint);
     }
 
-    // Draw black keys.
+    // Draw black keys over the white keys.
     final blackKeyWidth = whiteKeyWidth * 0.58;
     final blackKeyHeight = size.height * 0.62;
 
-    for (int i = 0; i < blackNotes.length; i++) {
+    for (var index = 0; index < _blackNotes.length; index++) {
       final left =
-          (blackKeyPositions[i] + 1) * whiteKeyWidth - blackKeyWidth / 2;
-
+          (_blackKeyPositions[index] + 1) * whiteKeyWidth - blackKeyWidth / 2;
       final rect = Rect.fromLTWH(left, 0, blackKeyWidth, blackKeyHeight);
 
-      final isPressed = pressedNotes.contains(blackNotes[i]);
-
+      final isPressed = pressedNotes.contains(_blackNotes[index]);
       final roundedRect = RRect.fromRectAndRadius(
         rect,
         const Radius.circular(4),
@@ -336,7 +416,9 @@ class PianoKeyboardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant PianoKeyboardPainter oldDelegate) {
-    return pressedNotes.length != oldDelegate.pressedNotes.length ||
+    return range.firstMidiNote != oldDelegate.range.firstMidiNote ||
+        range.lastMidiNote != oldDelegate.range.lastMidiNote ||
+        pressedNotes.length != oldDelegate.pressedNotes.length ||
         !pressedNotes.containsAll(oldDelegate.pressedNotes);
   }
 }
