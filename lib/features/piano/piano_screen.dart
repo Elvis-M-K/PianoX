@@ -22,6 +22,10 @@ class _PianoScreenState extends State<PianoScreen> {
 
   final AudioEngine _audioEngine = AudioEngine();
   final SoundFontEngine _soundFontEngine = SoundFontEngine();
+  final Set<String> _activeSustainInputs = {};
+  String? _sustainError;
+
+  bool get _isSustainActive => _activeSustainInputs.isNotEmpty;
 
   static const int _soundFontTestPointerId = 9999;
 
@@ -99,6 +103,44 @@ class _PianoScreenState extends State<PianoScreen> {
 
       setState(() {
         _audioStatus = 'Audio error: $error';
+      });
+    }
+  }
+
+  void _setSustainInput(String source, bool pressed) {
+    final wasActive = _activeSustainInputs.isNotEmpty;
+
+    if (pressed) {
+      _activeSustainInputs.add(source);
+    } else {
+      _activeSustainInputs.remove(source);
+    }
+
+    final isNowActive = _activeSustainInputs.isNotEmpty;
+
+    // Only notify the audio engine when the overall pedal state changes.
+    if (wasActive == isNowActive) return;
+
+    if (isNowActive) {
+      _sustainError = null;
+      _soundFontEngine.sustainPedalDown();
+    } else {
+      unawaited(_releaseSustainPedal());
+    }
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _releaseSustainPedal() async {
+    try {
+      await _soundFontEngine.sustainPedalUp();
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _sustainError = error.toString();
       });
     }
   }
@@ -423,7 +465,91 @@ class _PianoScreenState extends State<PianoScreen> {
                         onNoteOff: (pointerId, midiNote) {
                           unawaited(_stopKeyboardNote(pointerId));
                         },
+                        onSustainDown: () {
+                          _setSustainInput('spacebar', true);
+                        },
+                        onSustainUp: () {
+                          _setSustainInput('spacebar', false);
+                        },
                       ),
+                      const SizedBox(height: 14),
+
+                      SizedBox(
+                        width: double.infinity,
+                        child: Listener(
+                          behavior: HitTestBehavior.opaque,
+                          onPointerDown: (event) {
+                            _setSustainInput('pedal:${event.pointer}', true);
+                          },
+                          onPointerUp: (event) {
+                            _setSustainInput('pedal:${event.pointer}', false);
+                          },
+                          onPointerCancel: (event) {
+                            _setSustainInput('pedal:${event.pointer}', false);
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _isSustainActive
+                                  ? const Color(0xFF3D3218)
+                                  : panelColor,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _isSustainActive
+                                    ? goldColor
+                                    : goldColor.withValues(alpha: 0.25),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.music_note, color: goldColor),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'SUSTAIN PEDAL',
+                                        style: TextStyle(
+                                          color: goldColor,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 1,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        _sustainError ??
+                                            (_isSustainActive
+                                                ? 'ENGAGED — notes continue after key release'
+                                                : 'RELEASED — press and hold to sustain'),
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  _isSustainActive
+                                      ? Icons.check_circle
+                                      : Icons.touch_app,
+                                  color: _isSustainActive
+                                      ? goldColor
+                                      : Colors.white54,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
                       const SizedBox(height: 14),
                       const Text(
                         'COMPUTER KEYBOARD',
@@ -450,7 +576,8 @@ class _PianoScreenState extends State<PianoScreen> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Hold multiple keys together to play chords.',
+                        'Hold multiple keys together to play chords. '
+                        'Hold SPACEBAR to activate sustain.',
                         style: TextStyle(color: Colors.white70, fontSize: 13),
                       ),
                     ],

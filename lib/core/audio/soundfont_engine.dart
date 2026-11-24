@@ -1,11 +1,11 @@
-
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:soundfont_kit/soundfont_kit.dart';
+
+import 'sustain_pedal.dart';
 
 /// Plays realistic piano samples from the YDP Grand Piano SoundFont.
 class SoundFontEngine {
   final SoLoud _soloud = SoLoud.instance;
-
 
   SoundFontPlayer? _player;
   Preset? _pianoPreset;
@@ -13,12 +13,28 @@ class SoundFontEngine {
   // Each pointer gets its own voice, even when two pointers play the same key.
   final Map<int, SoundFontVoice> _activeVoices = {};
 
+  // Tracks sustain-pedal state and notes awaiting pedal release.
+  final SustainPedal _sustainPedal = SustainPedal();
+
   // Keeps actions from each pointer in the correct order.
   final Map<int, Future<void>> _pointerActions = {};
 
   Future<void>? _initialization;
 
   bool get isInitialized => _player != null;
+
+  /// Whether the sustain pedal is currently pressed.
+  bool get isSustainPedalDown => _sustainPedal.isDown;
+
+  /// Presses the sustain pedal.
+  void sustainPedalDown() {
+    _sustainPedal.press();
+  }
+
+  /// Releases the sustain pedal and releases all deferred notes.
+  Future<void> sustainPedalUp() {
+    return _sustainPedal.release();
+  }
 
   /// Loads the audio engine and the Acoustic Grand Piano preset.
   Future<void> initialize() async {
@@ -55,10 +71,7 @@ class SoundFontEngine {
     );
 
     // General MIDI bank 0, program 0 = Acoustic Grand Piano.
-    final pianoPreset = soundFont.findPreset(
-      bank: 0,
-      program: 0,
-    );
+    final pianoPreset = soundFont.findPreset(bank: 0, program: 0);
 
     if (pianoPreset == null) {
       throw StateError(
@@ -83,11 +96,7 @@ class SoundFontEngine {
   }
 
   /// Starts a piano note for a particular pointer.
-  Future<void> noteOn(
-    int pointerId,
-    int midiNote, {
-    int velocity = 100,
-  }) {
+  Future<void> noteOn(int pointerId, int midiNote, {int velocity = 100}) {
     if (midiNote < 0 || midiNote > 127) {
       throw RangeError.range(midiNote, 0, 127, 'midiNote');
     }
@@ -115,13 +124,21 @@ class SoundFontEngine {
     });
   }
 
-  /// Releases only the note belonging to the specified pointer.
+  /// Releases the note belonging to a pointer.
+  ///
+  /// Captures the pedal cycle immediately, before queueing the action.
+  /// This preserves the timing of the actual key-release event.
   Future<void> noteOff(int pointerId) {
+    final pedalCycle = _sustainPedal.activeCycle;
+
     return _queuePointerAction(pointerId, () async {
       final voice = _activeVoices.remove(pointerId);
 
       if (voice != null) {
-        await voice.release();
+        await _sustainPedal.releaseNote(
+          cycle: pedalCycle,
+          release: () => voice.release(),
+        );
       }
     });
   }
@@ -129,7 +146,9 @@ class SoundFontEngine {
   /// Releases all currently playing notes.
   Future<void> allNotesOff() async {
     await _player?.allNotesOff();
+
     _activeVoices.clear();
+    _sustainPedal.clearDeferredReleases();
   }
 
   /// Releases resources owned by this SoundFont player.
@@ -148,11 +167,12 @@ class SoundFontEngine {
 
     if (pendingActions.isNotEmpty) {
       await Future.wait(
-        pendingActions.map(
-          (action) => action.catchError((Object _) {}),
-        ),
+        pendingActions.map((action) => action.catchError((Object _) {})),
       );
     }
+
+    // Prevent deferred callbacks from surviving engine disposal.
+    _sustainPedal.clearDeferredReleases();
 
     await _player?.dispose();
 
@@ -166,13 +186,10 @@ class SoundFontEngine {
     int pointerId,
     Future<void> Function() action,
   ) async {
-    final previous =
-        _pointerActions[pointerId] ?? Future<void>.value();
+    final previous = _pointerActions[pointerId] ?? Future<void>.value();
 
     // A failed earlier action must not block later actions.
-    final next = previous
-        .catchError((Object _) {})
-        .then((_) => action());
+    final next = previous.catchError((Object _) {}).then((_) => action());
 
     _pointerActions[pointerId] = next;
 

@@ -6,8 +6,16 @@ import 'piano_keyboard_range.dart';
 class PianoKeyboard extends StatefulWidget {
   final void Function(int pointerId, int midiNote)? onNoteOn;
   final void Function(int pointerId, int midiNote)? onNoteOff;
+  final VoidCallback? onSustainDown;
+  final VoidCallback? onSustainUp;
 
-  const PianoKeyboard({super.key, this.onNoteOn, this.onNoteOff});
+  const PianoKeyboard({
+    super.key,
+    this.onNoteOn,
+    this.onNoteOff,
+    this.onSustainDown,
+    this.onSustainUp,
+  });
 
   @override
   State<PianoKeyboard> createState() => _PianoKeyboardState();
@@ -26,6 +34,7 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
 
   // Negative IDs distinguish computer keys from mouse/touch pointers.
   int _nextKeyboardPointerId = -1;
+  bool _isSustainKeyDown = false;
 
   // C4-B4 remains the default range (index 4).
   int _selectedRangeIndex = 4;
@@ -143,10 +152,26 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
   }
 
   bool _handleHardwareKeyEvent(KeyEvent event) {
+    // Spacebar operates the sustain pedal independently of piano notes.
+    if (event.logicalKey == LogicalKeyboardKey.space) {
+      if (event is KeyDownEvent) {
+        if (!_isSustainKeyDown) {
+          _isSustainKeyDown = true;
+          widget.onSustainDown?.call();
+        }
+      } else if (event is KeyUpEvent) {
+        if (_isSustainKeyDown) {
+          _isSustainKeyDown = false;
+          widget.onSustainUp?.call();
+        }
+      }
+
+      return true;
+    }
+
     final midiNote = _computerKeyNotes[event.logicalKey];
     if (midiNote == null) return false;
 
-    // Start the note on the first key-down event.
     if (event is KeyDownEvent) {
       if (!_keyboardPointerIds.containsKey(event.logicalKey)) {
         final pointerId = _nextKeyboardPointerId--;
@@ -160,7 +185,6 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
       return true;
     }
 
-    // Release only the corresponding note.
     if (event is KeyUpEvent) {
       final pointerId = _keyboardPointerIds.remove(event.logicalKey);
 
@@ -173,14 +197,12 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
       return true;
     }
 
-    // Consume repeat events without retriggering notes.
+    // Consume repeated events without retriggering notes.
     return true;
   }
 
   // Release every computer key if PianoX loses keyboard focus.
   void _releaseAllComputerKeys({bool rebuild = true}) {
-    if (_keyboardPointerIds.isEmpty) return;
-
     final activeKeys = _keyboardPointerIds.entries.toList();
     _keyboardPointerIds.clear();
 
@@ -190,6 +212,12 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
       if (midiNote != null) {
         widget.onNoteOff?.call(entry.value, midiNote);
       }
+    }
+
+    // Never leave sustain active when PianoX loses keyboard focus.
+    if (_isSustainKeyDown) {
+      _isSustainKeyDown = false;
+      widget.onSustainUp?.call();
     }
 
     if (rebuild && mounted) {
