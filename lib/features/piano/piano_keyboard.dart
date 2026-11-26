@@ -2,9 +2,13 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'piano_keyboard_range.dart';
+import 'piano_velocity.dart';
+
+import 'dart:ui' show PointerDeviceKind;
 
 class PianoKeyboard extends StatefulWidget {
-  final void Function(int pointerId, int midiNote)? onNoteOn;
+  final void Function(int pointerId, int midiNote, int velocity)? onNoteOn;
+  final int defaultVelocity;
   final void Function(int pointerId, int midiNote)? onNoteOff;
   final VoidCallback? onSustainDown;
   final VoidCallback? onSustainUp;
@@ -15,6 +19,7 @@ class PianoKeyboard extends StatefulWidget {
     this.onNoteOff,
     this.onSustainDown,
     this.onSustainUp,
+    this.defaultVelocity = 80,
   });
 
   @override
@@ -177,7 +182,11 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
         final pointerId = _nextKeyboardPointerId--;
         _keyboardPointerIds[event.logicalKey] = pointerId;
 
-        widget.onNoteOn?.call(pointerId, midiNote);
+        widget.onNoteOn?.call(
+          pointerId,
+          midiNote,
+          widget.defaultVelocity.clamp(1, 127).toInt(),
+        );
 
         if (mounted) setState(() {});
       }
@@ -225,8 +234,26 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
     }
   }
 
+  // Calculate velocity from available pointer pressure.
+  int _velocityFromEvent(PointerEvent event) {
+    final supportsPressure =
+        event.kind == PointerDeviceKind.stylus ||
+        event.kind == PointerDeviceKind.invertedStylus;
+
+    if (!supportsPressure) {
+      return widget.defaultVelocity.clamp(1, 127).toInt();
+    }
+
+    return PianoVelocity.fromPressure(
+      pressure: event.pressure,
+      pressureMin: event.pressureMin,
+      pressureMax: event.pressureMax,
+      fallbackVelocity: widget.defaultVelocity,
+    );
+  }
+
   // Update the note associated with a mouse/touch pointer.
-  void _updatePointer(int pointer, Offset position, Size size) {
+  void _updatePointer(int pointer, Offset position, Size size, int velocity) {
     final note = _getNoteAtPosition(position, size);
     final alreadyTracked = _pointerNotes.containsKey(pointer);
     final previousNote = _pointerNotes[pointer];
@@ -243,7 +270,7 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
     });
 
     if (note != null) {
-      widget.onNoteOn?.call(pointer, note);
+      widget.onNoteOn?.call(pointer, note, velocity);
     }
   }
 
@@ -350,11 +377,21 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
                   onPointerDown: (event) {
                     // Touching the piano returns computer-key focus to it.
                     _focusNode.requestFocus();
-                    _updatePointer(event.pointer, event.localPosition, size);
+                    _updatePointer(
+                      event.pointer,
+                      event.localPosition,
+                      size,
+                      _velocityFromEvent(event),
+                    );
                   },
                   onPointerMove: (event) {
                     if (_pointerNotes.containsKey(event.pointer)) {
-                      _updatePointer(event.pointer, event.localPosition, size);
+                      _updatePointer(
+                        event.pointer,
+                        event.localPosition,
+                        size,
+                        _velocityFromEvent(event),
+                      );
                     }
                   },
                   onPointerUp: (event) {

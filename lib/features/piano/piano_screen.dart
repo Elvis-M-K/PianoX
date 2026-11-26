@@ -1,12 +1,10 @@
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_soloud/flutter_soloud.dart';
 
-import '../../core/audio/audio_engine.dart';
 import '../../core/audio/soundfont_engine.dart';
 import 'piano_keyboard.dart';
-import 'piano_note.dart';
+import 'piano_velocity.dart';
 
 class PianoScreen extends StatefulWidget {
   const PianoScreen({super.key});
@@ -20,22 +18,12 @@ class _PianoScreenState extends State<PianoScreen> {
   static const Color panelColor = Color(0xFF1E1E1E);
   static const Color goldColor = Color(0xFFD4AF37);
 
-  final AudioEngine _audioEngine = AudioEngine();
   final SoundFontEngine _soundFontEngine = SoundFontEngine();
+  PianoVelocityPreset _velocityPreset = PianoVelocityPreset.normal;
   final Set<String> _activeSustainInputs = {};
   String? _sustainError;
 
   bool get _isSustainActive => _activeSustainInputs.isNotEmpty;
-
-  static const int _soundFontTestPointerId = 9999;
-
-  bool _isSoundFontBusy = false;
-  bool _isSoundFontPlaying = false;
-  String _soundFontStatus = 'Preparing grand piano samples...';
-
-  SoundHandle? _testNoteHandle;
-  bool _isBusy = false;
-  String _audioStatus = 'Audio test ready';
 
   @override
   void initState() {
@@ -46,45 +34,29 @@ class _PianoScreenState extends State<PianoScreen> {
   Future<void> _prepareSoundFont() async {
     try {
       await _soundFontEngine.initialize();
-
-      if (!mounted) return;
-
-      setState(() {
-        _soundFontStatus = 'Grand piano ready';
-      });
     } catch (error) {
       if (!mounted) return;
 
-      setState(() {
-        _soundFontStatus = 'SoundFont error: $error';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Piano audio initialization failed: $error')),
+      );
     }
   }
 
   // Start a note when a piano key is pressed.
-  Future<void> _startKeyboardNote(int pointerId, int midiNote) async {
-    final note = PianoNote(midiNote);
-
-    if (mounted) {
-      setState(() {
-        _audioStatus = 'Key pressed: ${note.fullName}';
-      });
-    }
-
+  Future<void> _startKeyboardNote(
+    int pointerId,
+    int midiNote,
+    int velocity,
+  ) async {
     try {
-      await _soundFontEngine.noteOn(pointerId, midiNote, velocity: 100);
-
-      if (!mounted) return;
-
-      setState(() {
-        _audioStatus = 'Playing ${note.fullName}';
-      });
+      await _soundFontEngine.noteOn(pointerId, midiNote, velocity: velocity);
     } catch (error) {
       if (!mounted) return;
 
-      setState(() {
-        _audioStatus = 'Audio error: $error';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not play piano note: $error')),
+      );
     }
   }
 
@@ -92,18 +64,12 @@ class _PianoScreenState extends State<PianoScreen> {
   Future<void> _stopKeyboardNote(int pointerId) async {
     try {
       await _soundFontEngine.noteOff(pointerId);
-
-      if (!mounted) return;
-
-      setState(() {
-        _audioStatus = 'Audio test ready';
-      });
     } catch (error) {
       if (!mounted) return;
 
-      setState(() {
-        _audioStatus = 'Audio error: $error';
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not release piano note: $error')),
+      );
     }
   }
 
@@ -145,136 +111,8 @@ class _PianoScreenState extends State<PianoScreen> {
     }
   }
 
-  Future<void> _playA4() async {
-    setState(() {
-      _isBusy = true;
-      _audioStatus = 'Initializing audio...';
-    });
-
-    try {
-      await _audioEngine.initialize();
-
-      final handle = await _audioEngine.playTestNote(440);
-
-      if (!mounted) {
-        await _audioEngine.stopTestNote(handle);
-        return;
-      }
-
-      setState(() {
-        _testNoteHandle = handle;
-        _audioStatus = 'Playing A4 — 440 Hz';
-        _isBusy = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _audioStatus = 'Audio error: $error';
-        _isBusy = false;
-      });
-    }
-  }
-
-  Future<void> _stopA4() async {
-    final handle = _testNoteHandle;
-    if (handle == null) return;
-
-    setState(() {
-      _isBusy = true;
-    });
-
-    try {
-      await _audioEngine.stopTestNote(handle);
-
-      if (!mounted) return;
-
-      setState(() {
-        _testNoteHandle = null;
-        _audioStatus = 'Audio test ready';
-        _isBusy = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _audioStatus = 'Audio error: $error';
-        _isBusy = false;
-      });
-    }
-  }
-
-  Future<void> _playSoundFontA4() async {
-    setState(() {
-      _isSoundFontBusy = true;
-      _soundFontStatus = 'Loading grand piano samples...';
-    });
-
-    try {
-      // Start A4 (MIDI 69).
-      await _soundFontEngine.noteOn(_soundFontTestPointerId, 69, velocity: 100);
-
-      // Start C5 (MIDI 72) without releasing A4.
-      await _soundFontEngine.noteOn(
-        _soundFontTestPointerId + 1,
-        72,
-        velocity: 100,
-      );
-
-      if (!mounted) {
-        await _soundFontEngine.noteOff(_soundFontTestPointerId);
-        return;
-      }
-
-      setState(() {
-        _isSoundFontPlaying = true;
-        _isSoundFontBusy = false;
-        _soundFontStatus = 'Playing A4 — YDP Grand Piano';
-      });
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _isSoundFontBusy = false;
-        _soundFontStatus = 'SoundFont error: $error';
-      });
-    }
-  }
-
-  Future<void> _stopSoundFontA4() async {
-    setState(() {
-      _isSoundFontBusy = true;
-    });
-
-    try {
-      await _soundFontEngine.noteOff(_soundFontTestPointerId);
-      await _soundFontEngine.noteOff(_soundFontTestPointerId + 1);
-
-      if (!mounted) return;
-
-      setState(() {
-        _isSoundFontPlaying = false;
-        _isSoundFontBusy = false;
-        _soundFontStatus = 'SoundFont test ready';
-      });
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _isSoundFontBusy = false;
-        _soundFontStatus = 'SoundFont error: $error';
-      });
-    }
-  }
-
   @override
   void dispose() {
-    final handle = _testNoteHandle;
-
-    if (handle != null) {
-      unawaited(_audioEngine.stopTestNote(handle));
-    }
-
     unawaited(_soundFontEngine.dispose());
     super.dispose();
   }
@@ -293,151 +131,111 @@ class _PianoScreenState extends State<PianoScreen> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Scrollable workspace: headings and test controls.
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'PIANO WORKSPACE',
-                          style: TextStyle(
-                            color: goldColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Make some music.',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Explore the keyboard and discover your sound.',
-                          style: TextStyle(color: Colors.white70, fontSize: 14),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Temporary audio engine test controls.
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: panelColor,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'AUDIO ENGINE TEST',
-                                style: TextStyle(
-                                  color: goldColor,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1,
-                                ),
+                        // Workspace headings and audio test controls.
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'PIANO WORKSPACE',
+                              style: TextStyle(
+                                color: goldColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 2,
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                _audioStatus,
-                                style: const TextStyle(color: Colors.white70),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  ElevatedButton(
-                                    onPressed:
-                                        _isBusy || _testNoteHandle != null
-                                        ? null
-                                        : _playA4,
-                                    child: const Text('Play A4'),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  OutlinedButton(
-                                    onPressed:
-                                        _isBusy || _testNoteHandle == null
-                                        ? null
-                                        : _stopA4,
-                                    child: const Text('Stop'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Temporary SoundFont test controls.
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: panelColor,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: goldColor.withValues(alpha: 0.25),
                             ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'SOUNDFONT GRAND PIANO TEST',
-                                style: TextStyle(
-                                  color: goldColor,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1,
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Make some music.',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Explore the keyboard and discover your sound.',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: panelColor,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: goldColor.withValues(alpha: 0.25),
                                 ),
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                _soundFontStatus,
-                                style: const TextStyle(color: Colors.white70),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  ElevatedButton(
-                                    onPressed:
-                                        _isSoundFontBusy || _isSoundFontPlaying
-                                        ? null
-                                        : _playSoundFontA4,
-                                    child: const Text('Play Sampled A4'),
+                                  const Text(
+                                    'COMPUTER KEYBOARD',
+                                    style: TextStyle(
+                                      color: goldColor,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1,
+                                    ),
                                   ),
-                                  const SizedBox(width: 12),
-                                  OutlinedButton(
-                                    onPressed:
-                                        _isSoundFontBusy || !_isSoundFontPlaying
-                                        ? null
-                                        : _stopSoundFontA4,
-                                    child: const Text('Release Note'),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'A  W  S  E  D  F  T  G  Y  H  U  J  K',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'Keys follow the selected range; K plays C8 in the highest range.',
+                                    style: TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Hold multiple keys together to play chords. '
+                                    'Hold SPACEBAR to activate sustain.',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
                       ],
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
 
                 // Fixed piano workspace: deliberately outside the scroll view.
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: panelColor,
                     borderRadius: BorderRadius.circular(12),
@@ -457,10 +255,49 @@ class _PianoScreenState extends State<PianoScreen> {
                           letterSpacing: 1,
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 12),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'PLAYING VELOCITY',
+                            style: TextStyle(
+                              color: goldColor,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          SegmentedButton<PianoVelocityPreset>(
+                            showSelectedIcon: false,
+                            segments: PianoVelocityPreset.values.map((preset) {
+                              return ButtonSegment<PianoVelocityPreset>(
+                                value: preset,
+                                label: Text(
+                                  '${preset.label} · ${preset.velocity}',
+                                ),
+                              );
+                            }).toList(),
+                            selected: {_velocityPreset},
+                            onSelectionChanged: (selection) {
+                              if (selection.isEmpty) return;
+
+                              setState(() {
+                                _velocityPreset = selection.first;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 12),
+
                       PianoKeyboard(
-                        onNoteOn: (pointerId, midiNote) {
-                          unawaited(_startKeyboardNote(pointerId, midiNote));
+                        defaultVelocity: _velocityPreset.velocity,
+                        onNoteOn: (pointerId, midiNote, velocity) {
+                          unawaited(
+                            _startKeyboardNote(pointerId, midiNote, velocity),
+                          );
                         },
                         onNoteOff: (pointerId, midiNote) {
                           unawaited(_stopKeyboardNote(pointerId));
@@ -547,38 +384,6 @@ class _PianoScreenState extends State<PianoScreen> {
                             ),
                           ),
                         ),
-                      ),
-
-                      const SizedBox(height: 14),
-                      const SizedBox(height: 14),
-                      const Text(
-                        'COMPUTER KEYBOARD',
-                        style: TextStyle(
-                          color: goldColor,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'A  W  S  E  D  F  T  G  Y  H  U  J  K',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Keys follow the selected range; K plays C8 in the highest range.',
-                        style: TextStyle(color: Colors.white60, fontSize: 12),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Hold multiple keys together to play chords. '
-                        'Hold SPACEBAR to activate sustain.',
-                        style: TextStyle(color: Colors.white70, fontSize: 13),
                       ),
                     ],
                   ),
